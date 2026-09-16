@@ -44,13 +44,13 @@ class PsUtilProcessProxy:
         assert isinstance(self.ssh, RemoteOperations)
         assert type(self.pid) is int
         command = ["kill", str(self.pid)]
-        self.ssh.exec_command(command, encoding=get_default_encoding())
+        self.ssh._transport_run(command, encoding=get_default_encoding())
 
     def cmdline(self):
         assert isinstance(self.ssh, RemoteOperations)
         assert type(self.pid) is int
         command = ["ps", "-p", str(self.pid), "-o", "cmd", "--no-headers"]
-        output = self.ssh.exec_command(command, encoding=get_default_encoding())
+        output = self.ssh._transport_run(command, encoding=get_default_encoding()).stdout
         assert type(output) is str
         cmdline = output.strip()
         # TODO: This code work wrong if command line contains quoted values. Yes?
@@ -864,41 +864,37 @@ class RemoteOperations(OsOperations):
 
         cmd = ["printenv", var_name]
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             cmd,
             encoding=get_default_encoding(),
-            verbose=True,
-            ignore_errors=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exit_code, stdout, stderr = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exit_code) is int
-        assert type(stdout) is str
-        assert type(stderr) is str
+        if exec_r.returncode == 0:
+            return __class__._strip_last_eol(exec_r.stdout)
 
-        if exit_code == 0:
-            return __class__._strip_last_eol(stdout)
-
-        if exit_code == 1:
+        if exec_r.returncode == 1:
             return None
 
         error = "Failed to read environment variable {!r} value.".format(var_name)
 
         RaiseError.UtilityExitedWithNonZeroCode(
             cmd=cmd,
-            exit_code=exit_code,
+            exit_code=exec_r.returncode,
             msg_arg=error,
-            error=stderr,
-            out=stdout,
+            error=exec_r.stderr,
+            out=exec_r.stdout,
         )
 
     def cwd(self) -> str:
         cmd = 'pwd'
-        stdout = self.exec_command(cmd, encoding=get_default_encoding())
+        stdout = self._transport_run(cmd, encoding=get_default_encoding()).stdout
         assert type(stdout) is str
         return stdout.rstrip()
 
@@ -925,39 +921,35 @@ class RemoteOperations(OsOperations):
 
         command = "test -x " + __class__._quote_path(file)
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             cmd=command,
             encoding=get_default_encoding(),
-            ignore_errors=True,
-            verbose=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exit_status, output, error = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exit_status) is int
-        assert type(output) is str
-        assert type(error) is str
-
-        if exit_status == 0:
+        if exec_r.returncode == 0:
             return True
 
-        if exit_status == 1:
+        if exec_r.returncode == 1:
             return False
 
         errMsg = "Test operation returns an unknown result code: {0}. File name is [{1}].".format(
-            exit_status,
+            exec_r.returncode,
             file,
         )
 
         RaiseError.CommandExecutionError(
             cmd=command,
-            exit_code=exit_status,
+            exit_code=exec_r.returncode,
             message=errMsg,
-            error=error,
-            out=output
+            error=exec_r.stderr,
+            out=exec_r.stdout,
         )
 
     def set_env(
@@ -1035,7 +1027,7 @@ class RemoteOperations(OsOperations):
 
         cmd = " ".join(cmd_p)
 
-        self.exec_command(
+        self._transport_run(
             cmd,
             encoding=get_default_encoding(),
         )
@@ -1044,7 +1036,7 @@ class RemoteOperations(OsOperations):
     def makedir(self, path: str) -> None:
         assert type(path) is str
         cmd = "mkdir " + __class__._quote_path(path)
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
 
     def rmdirs(
@@ -1092,7 +1084,7 @@ class RemoteOperations(OsOperations):
             assert a < attempts
             a += 1
             try:
-                self.exec_command(
+                self._transport_run(
                     cmd2,
                     encoding=Helpers.get_default_encoding(),
                 )
@@ -1121,7 +1113,7 @@ class RemoteOperations(OsOperations):
     def rmdir(self, path: str) -> None:
         assert type(path) is str
         cmd = "rmdir " + __class__._quote_path(path)
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
 
     def listdir(self, path: str) -> typing.List[str]:
@@ -1132,7 +1124,7 @@ class RemoteOperations(OsOperations):
         """
         assert type(path) is str
         command = "ls " + __class__._quote_path(path)
-        output = self.exec_command(cmd=command, encoding=get_default_encoding())
+        output = self._transport_run(cmd=command, encoding=get_default_encoding()).stdout
         assert type(output) is str
         result = output.splitlines()
         assert type(result) is list
@@ -1143,38 +1135,34 @@ class RemoteOperations(OsOperations):
 
         command = "test -e " + __class__._quote_path(path)
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             cmd=command,
             encoding=get_default_encoding(),
-            ignore_errors=True,
-            verbose=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exit_status, output, error = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exit_status) is int
-        assert type(output) is str
-        assert type(error) is str
-
-        if exit_status == 0:
+        if exec_r.returncode == 0:
             return True
 
-        if exit_status == 1:
+        if exec_r.returncode == 1:
             return False
 
         errMsg = "Test operation returns an unknown result code: {0}. Path is [{1}].".format(
-            exit_status,
+            exec_r.returncode,
             path)
 
         RaiseError.CommandExecutionError(
             cmd=command,
-            exit_code=exit_status,
+            exit_code=exec_r.returncode,
             message=errMsg,
-            error=error,
-            out=output
+            error=exec_r.stderr,
+            out=exec_r.stdout,
         )
 
     @property
@@ -1204,26 +1192,28 @@ class RemoteOperations(OsOperations):
 
         command = " ".join(command_p)
 
-        exec_r = self.exec_command(command, verbose=True, encoding=get_default_encoding(), ignore_errors=True)
+        exec_r = self._transport_run(
+            command,
+            encoding=get_default_encoding(),
+            check=False,
+        )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exec_exitcode, exec_output, exec_error = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exec_exitcode) is int
-        assert type(exec_output) is str
-        assert type(exec_error) is str
-
-        if exec_exitcode != 0:
+        if exec_r.returncode != 0:
             RaiseError.CommandExecutionError(
                 cmd=command,
-                exit_code=exec_exitcode,
+                exit_code=exec_r.returncode,
                 message="Could not create temporary directory.",
-                error=exec_error,
-                out=exec_output)
+                error=exec_r.stderr,
+                out=exec_r.stdout,
+            )
 
-        temp_dir = exec_output.strip()
+        temp_dir = exec_r.stdout.strip()
         return temp_dir
 
     def mkstemp(self, prefix: typing.Optional[str] = None) -> str:
@@ -1247,31 +1237,28 @@ class RemoteOperations(OsOperations):
 
         command = " ".join(command_p)
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             command,
-            verbose=True,
             encoding=get_default_encoding(),
-            ignore_errors=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exec_exitcode, exec_output, exec_error = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exec_exitcode) is int
-        assert type(exec_output) is str
-        assert type(exec_error) is str
-
-        if exec_exitcode != 0:
+        if exec_r.returncode != 0:
             RaiseError.CommandExecutionError(
                 cmd=command,
-                exit_code=exec_exitcode,
+                exit_code=exec_r.returncode,
                 message="Could not create temporary file.",
-                error=exec_error,
-                out=exec_output)
+                error=exec_r.stderr,
+                out=exec_r.stdout,
+            )
 
-        temp_file = exec_output.strip()
+        temp_file = exec_r.stdout.strip()
         return temp_file
 
     def copytree(self, src: str, dst: str) -> str:
@@ -1287,7 +1274,7 @@ class RemoteOperations(OsOperations):
             __class__._quote_path(src),
             __class__._quote_path(abs_dst),
         )
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return dst
 
     # Work with files
@@ -1347,14 +1334,14 @@ class RemoteOperations(OsOperations):
         # 4. Execute ONE network request
         # Pass final_data to the stdin parameter of the exec_command method
         assert type(final_data) is bytes
-        self.exec_command(
+        self._transport_run(
             remote_cmd,
             input=final_data,
             # It does not touch our binary final_data (see PrepareProcessInput)
             # but allows to generate an error messages as text.
             encoding=get_default_encoding(),
             # Let it crash honestly if there are no rights or the disk is full
-            ignore_errors=False,
+            check=True,
         )
         return
 
@@ -1387,7 +1374,7 @@ class RemoteOperations(OsOperations):
 
         cmd = "touch " + __class__._quote_path(filename)
 
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
 
     def read(
@@ -1426,7 +1413,7 @@ class RemoteOperations(OsOperations):
     def _read__binary(self, filename: str) -> bytes:
         assert type(filename) is str
         cmd = "cat " + __class__._quote_path(filename)
-        content = self.exec_command(cmd)
+        content = self._transport_run(cmd).stdout
         assert type(content) is bytes
         return content
 
@@ -1467,7 +1454,7 @@ class RemoteOperations(OsOperations):
             assert type(encoding) is str
             pass
 
-        result = self.exec_command(cmd, encoding=encoding)
+        result = self._transport_run(cmd, encoding=encoding).stdout
         assert result is not None
 
         if binary:
@@ -1503,7 +1490,7 @@ class RemoteOperations(OsOperations):
 
         cmd = " ".join(cmd_p)
 
-        r = self.exec_command(cmd)
+        r = self._transport_run(cmd).stdout
         assert type(r) is bytes
         return r
 
@@ -1515,7 +1502,7 @@ class RemoteOperations(OsOperations):
         assert type(filename_q) is str
 
         cmd = "test -f {}; echo $?".format(filename_q)
-        stdout = self.exec_command(cmd)
+        stdout = self._transport_run(cmd).stdout
         assert type(stdout) is bytes
         result = int(stdout.strip())
         return result == 0
@@ -1527,7 +1514,7 @@ class RemoteOperations(OsOperations):
         dirname_q = __class__._quote_path(dirname)
 
         cmd = "if [ -d {} ]; then echo True; else echo False; fi".format(dirname_q)
-        stdout = self.exec_command(cmd)
+        stdout = self._transport_run(cmd).stdout
         assert type(stdout) is bytes
         return stdout.strip() == b"True"
 
@@ -1541,7 +1528,7 @@ class RemoteOperations(OsOperations):
         cmd = "stat -c %s " + filename_q
 
         # exec_command will throw ExecUtilException (e.g. with code 1) if the file does not exist
-        res = self.exec_command(cmd, encoding=get_default_encoding())
+        res = self._transport_run(cmd, encoding=get_default_encoding()).stdout
         assert type(res) is str
         return int(res)
 
@@ -1549,7 +1536,7 @@ class RemoteOperations(OsOperations):
         assert type(filename) is str
         assert filename != ""
         cmd = "rm " + __class__._quote_path(filename)
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
 
     # Processes control
@@ -1559,41 +1546,34 @@ class RemoteOperations(OsOperations):
         assert type(signal) is int or type(signal) is os_signal.Signals
         assert int(signal) == signal
         cmd = "kill -{} {}".format(int(signal), pid)
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
 
     def get_pid(self) -> int:
         # Get current process id
-        x = self.exec_command("echo $$", encoding=get_default_encoding())
+        x = self._transport_run("echo $$", encoding=get_default_encoding()).stdout
         assert type(x) is str
         return int(x)
 
     def get_process_children(self, pid: int) -> typing.List:
         assert type(pid) is int
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             [
                 "sh", "-c",
                 "[ -d /proc/{0} ] || exit 100; pgrep -P {0}".format(pid),
             ],
             encoding=get_default_encoding(),
-            verbose=True,
-            ignore_errors=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
-        assert type(exec_r[0]) is int
-        assert type(exec_r[1]) is str
-        assert type(exec_r[2]) is str
+        assert type(exec_r) is __class__.tagTransportRunResult
 
-        exit_code, stdout, stderr = exec_r
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        assert type(exit_code) is int
-        assert type(stdout) is str
-        assert type(stderr) is str
-
-        if exit_code == 100:
+        if exec_r.returncode == 100:
             err_msg = "Failed to get process children. Reason: No such process with PID {}.".format(
                 pid
             )
@@ -1603,8 +1583,8 @@ class RemoteOperations(OsOperations):
                 exit_code=1,  # ERR: NOT FOUND
             )
 
-        if exit_code == 0:
-            stdout_clean = stdout.strip()
+        if exec_r.returncode == 0:
+            stdout_clean = exec_r.stdout.strip()
             if not stdout_clean:
                 return []
             return [
@@ -1612,19 +1592,19 @@ class RemoteOperations(OsOperations):
                 for child_pid in stdout_clean.splitlines()
             ]
 
-        if exit_code == 1:
-            if not stderr.strip():
+        if exec_r.returncode == 1:
+            if not exec_r.stderr.strip():
                 # pgrep returns 1 when no children are found
                 return []
 
-        error_msg = stderr.strip() or "command exited with code {}".format(exit_code)  # noqa: E501
+        error_msg = exec_r.stderr.strip() or "command exited with code {}".format(exec_r.returncode)  # noqa: E501
 
         raise ExecUtilException(
             "Failed to get process children for PID {}. Reason: {}".format(
                 pid,
                 error_msg,
             ),
-            exit_code=exit_code,
+            exit_code=exec_r.returncode,
         )
 
     def is_port_free(self, number: int) -> bool:
@@ -1651,64 +1631,55 @@ class RemoteOperations(OsOperations):
             grep_cmd_s,
         ]
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             cmd=cmd,
             encoding=get_default_encoding(),
-            ignore_errors=True,
-            verbose=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
-
-        exit_status, output, error = exec_r
+        assert type(exec_r) is __class__.tagTransportRunResult
 
         # grep exit 0 -> port is busy
-        if exit_status == 0:
+        if exec_r.returncode == 0:
             return False
 
         # grep exit 1 -> port is free
-        if exit_status == 1:
+        if exec_r.returncode == 1:
             return True
 
         # any other code is an unexpected error
-        errMsg = f"grep returned unexpected exit code: {exit_status}"
+        errMsg = f"grep returned unexpected exit code: {exec_r.returncode}"
         raise RaiseError.CommandExecutionError(
             cmd=cmd,
-            exit_code=exit_status,
+            exit_code=exec_r.returncode,
             message=errMsg,
-            error=error,
-            out=output
+            error=exec_r.stderr,
+            out=exec_r.stdout,
         )
 
     def get_tempdir(self) -> str:
         command = ["mktemp", "-u", "-d"]
 
-        exec_r = self.exec_command(
+        exec_r = self._transport_run(
             command,
-            verbose=True,
             encoding=get_default_encoding(),
-            ignore_errors=True,
+            check=False,
         )
 
-        assert type(exec_r) is tuple
-        assert len(exec_r) == 3
+        assert type(exec_r.returncode) is int
+        assert type(exec_r.stdout) is str
+        assert type(exec_r.stderr) is str
 
-        exec_exitcode, exec_output, exec_error = exec_r
-
-        assert type(exec_exitcode) is int
-        assert type(exec_output) is str
-        assert type(exec_error) is str
-
-        if exec_exitcode != 0:
+        if exec_r.returncode != 0:
             RaiseError.CommandExecutionError(
                 cmd=command,
-                exit_code=exec_exitcode,
+                exit_code=exec_r.returncode,
                 message="Could not detect a temporary directory.",
-                error=exec_error,
-                out=exec_output)
+                error=exec_r.stderr,
+                out=exec_r.stdout,
+            )
 
-        temp_subdir = exec_output.strip()
+        temp_subdir = exec_r.stdout.strip()
         assert type(temp_subdir) is str
         temp_dir = __class__._get_dirname(temp_subdir)
         assert type(temp_dir) is str
@@ -1739,10 +1710,10 @@ class RemoteOperations(OsOperations):
         #
         # "-m" is used to ignore not exist parts of path
         #
-        r = self.exec_command(
+        r = self._transport_run(
             cmd,
             encoding=get_default_encoding(),
-        )
+        ).stdout
         assert type(r) is str
         r = __class__._strip_last_eol(r)
         assert type(r) is str
@@ -1759,7 +1730,7 @@ class RemoteOperations(OsOperations):
         cmd = "stat -c '%s|%Y' " + filename_q
 
         # exec_command will throw ExecUtilException (e.g. with code 1) if the file does not exist
-        res = self.exec_command(cmd, encoding=get_default_encoding())
+        res = self._transport_run(cmd, encoding=get_default_encoding()).stdout
         assert type(res) is str
 
         parts = res.strip().split("|")
@@ -1798,8 +1769,168 @@ class RemoteOperations(OsOperations):
             "(set -o noclobber; > {})".format(filename_q),
         ]
 
-        self.exec_command(cmd, encoding=get_default_encoding())
+        self._transport_run(cmd, encoding=get_default_encoding())
         return
+
+    def _transport_popen(
+        self,
+        cmd: T_OS_CMD,
+        text: typing.Optional[bool] = None,
+        encoding: typing.Optional[str] = None,
+        shell: bool = False,
+        stdin: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        stdout: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        stderr: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        exec_env: typing.Optional[OsOperations.T_EXEC_ENV] = None,
+        cwd: typing.Optional[str] = None
+    ) -> subprocess.Popen:
+        assert type(cmd) in [str, list]
+        assert text is None or type(text) is bool
+        assert encoding is None or type(encoding) is str
+        assert type(shell) is bool
+        assert stdin is None or type(stdin) is int or isinstance(stdin, io.IOBase)
+        assert stdout is None or type(stdout) is int or isinstance(stdout, io.IOBase)
+        assert stderr is None or type(stderr) is int or isinstance(stderr, io.IOBase)
+        assert exec_env is None or type(exec_env) is dict
+        assert cwd is None or type(cwd) is str
+
+        cmds = []
+
+        if cwd is not None:
+            cmds.append(__class__._build_cmdline(["cd", cwd]))
+
+        assert self._remote_env_guard is not None
+        assert type(self._remote_env) is dict
+
+        exec_env2: typing.Optional[__class__.T_ENVS] = None
+        with self._remote_env_guard:
+            if len(self._remote_env) > 0:
+                exec_env2 = self._remote_env.copy()
+
+        if exec_env2 is None:
+            exec_env2 = exec_env
+        elif exec_env is not None:
+            exec_env2.update(exec_env)
+
+        # Construct the final command, recording the PID and replacing the process via exec
+        cmd2 = __class__._ensure_cmdline(cmd)
+
+        target_cmdline = __class__._build_cmdline(cmd2, exec_env2)
+
+        cmds.append(target_cmdline)
+
+        cmdline = " && ".join(cmds)
+
+        assert type(self._ssh_cmd) is list
+        assert len(self._ssh_cmd) > 0
+        ssh_cmd = self._ssh_cmd + [cmdline]
+
+        if encoding is not None and text is None:
+            text = True
+
+        result = subprocess.Popen(
+            ssh_cmd,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            text=text,
+            encoding=encoding,
+            shell=False,
+        )
+
+        assert type(result) is subprocess.Popen
+        return result
+
+    class tagTransportRunResult:
+        T_IO_RESULT = typing.Union[str, bytes]
+
+        returncode: int
+        stdout: T_IO_RESULT
+        stderr: T_IO_RESULT
+
+        def __init__(
+            self,
+            returncode: int,
+            stdout: T_IO_RESULT,
+            stderr: T_IO_RESULT,
+        ):
+            assert type(returncode) is int
+            assert type(stdout) in [str, bytes]
+            assert type(stderr) in [str, bytes]
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+            return
+
+    def _transport_run(
+        self,
+        cmd: T_OS_CMD,
+        text: typing.Optional[bool] = None,
+        encoding: typing.Optional[str] = None,
+        shell: bool = False,
+        input: typing.Optional[T_OS_RUN_INPUT] = None,
+        stdin: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        stdout: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        stderr: typing.Optional[T_OS_IO_ID] = subprocess.PIPE,
+        exec_env: typing.Optional[OsOperations.T_EXEC_ENV] = None,
+        cwd: typing.Optional[str] = None,
+        check: bool = True,
+    ) -> tagTransportRunResult:
+        assert type(cmd) in [str, list]
+        assert text is None or type(text) is bool
+        assert encoding is None or type(encoding) is str
+        assert type(shell) is bool
+        assert input is None or type(input) in [str, bytes]
+        assert stdin is None or type(stdin) is int or isinstance(stdin, io.IOBase)
+        assert stdout is None or type(stdout) is int or isinstance(stdout, io.IOBase)
+        assert stderr is None or type(stderr) is int or isinstance(stderr, io.IOBase)
+        assert exec_env is None or type(exec_env) is dict
+        assert cwd is None or type(cwd) is str
+
+        input = Helpers.prepare_process_input(
+            input,
+            encoding,
+        )
+
+        p = self._transport_popen(
+            cmd,
+            text=text,
+            encoding=encoding,
+            shell=shell,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            exec_env=exec_env,
+            cwd=cwd,
+        )
+        assert type(p) is subprocess.Popen
+
+        with p:
+            communicate_r = p.communicate(input=input)
+            assert type(communicate_r) is tuple
+            assert len(communicate_r) == 2
+
+            returncode = p.returncode
+            assert type(returncode) is int
+
+            result = __class__.tagTransportRunResult(
+                returncode,
+                communicate_r[0],
+                communicate_r[1],
+            )
+
+            if returncode == 0:
+                pass
+            elif check:
+                RaiseError.UtilityExitedWithNonZeroCode(
+                    cmd,
+                    result.returncode,
+                    msg_arg=result.stderr,
+                    error=result.stderr,
+                    out=result.stdout,
+                )
+
+            return result
 
     @staticmethod
     def _build_cmdline(
